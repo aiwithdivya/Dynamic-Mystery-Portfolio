@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Divya Goyal | Full Stack Developer Game</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* =========================================================
+           1. CORE, VARIABLES & RESPONSIVE RESETS
+           ========================================================= */
+        :root {
+            /* Desktop Default 3D Dimensions */
+            --room-size: 800px;
+            --cam-z: 200px;
+            --door-w: 180px;
+            --door-h: 340px;
+        }
+
+        @media (max-width: 768px) {
+            :root {
+                /* Mobile 3D Dimensions (Rebuilds the box smaller) */
+                --room-size: 380px;
+                --cam-z: 80px;
+                --door-w: 120px;
+                --door-h: 220px;
+            }
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            width: 100vw; height: 100vh;
+            background-color: #f4f4f2; overflow: hidden;
+            font-family: 'Caveat', cursive; color: #222; user-select: none;
+            -webkit-tap-highlight-color: transparent; 
+            overscroll-behavior: none; /* Stops pull-to-refresh on mobile swipe */
+        }
+
+        /* Paper Texture */
+        body::before {
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 999; opacity: 0.35; mix-blend-mode: multiply;
+            background: url('data:image/svg+xml;utf8,%3Csvg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="noiseFilter"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100%25" height="100%25" filter="url(%23noiseFilter)"/%3E%3C/svg%3E');
+        }
+
+        /* Hide native cursor on non-touch devices */
+        @media (hover: hover) and (pointer: fine) {
+            * { cursor: none !important; }
+        }
+
+        /* Custom Game Cursor (Desktop Only) */
+        #game-cursor {
+            position: fixed; top: -10px; left: -10px; width: 20px; height: 20px;
+            border: 2px solid #2a2a2a; border-radius: 50%; pointer-events: none; z-index: 10000;
+            transform: translate(0, 0); transition: width 0.2s, height 0.2s, background-color 0.2s;
+            display: flex; justify-content: center; align-items: center;
+        }
+        @media (hover: none) { #game-cursor { display: none !important; } }
+        
+        #game-cursor::after { content: ''; width: 4px; height: 4px; background: #2a2a2a; border-radius: 50%; }
+        #game-cursor.hovering { width: 30px; height: 30px; background-color: rgba(42, 42, 42, 0.1); border-style: dashed; animation: spin 4s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Click Ripple Effect */
+        .click-ripple {
+            position: fixed; border: 2px solid #2a2a2a; border-radius: 50%; pointer-events: none; z-index: 9999;
+            transform: translate(-50%, -50%); animation: rippleAnim 0.6s ease-out forwards;
+        }
+        @keyframes rippleAnim { 0% { width: 0; height: 0; opacity: 1; } 100% { width: 80px; height: 80px; opacity: 0; } }
+
+        #ink-particles, #confetti-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 1; }
+        #ink-particles { opacity: 0.6; }
+        #confetti-canvas { z-index: 400; } 
+
+        /* =========================================================
+           2. HUD & GAME UI
+           ========================================================= */
+        #game-hud {
+            position: fixed; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between;
+            font-family: 'Courier Prime', monospace; font-weight: bold; font-size: clamp(0.8rem, 2vw, 1.2rem); color: #2a2a2a; z-index: 110;
+            opacity: 0; transition: opacity 1s; pointer-events: none; gap: 10px;
+        }
+        @media (max-width: 768px) { #game-hud { flex-direction: column; align-items: center; top: 10px; } }
+        
+        .hud-box {
+            border: 2px dashed #2a2a2a; padding: 10px 20px; background: rgba(244, 244, 242, 0.8);
+            border-radius: 2px 15px 3px 15px / 15px 5px 15px 3px; text-align: center; width: 100%; max-width: 300px;
+        }
+        .blink { animation: blinking 1.5s infinite; }
+        @keyframes blinking { 50% { opacity: 0.3; } }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+        .shake-anim { animation: shake 0.4s ease-out; }
+
+        #flash { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #fff; z-index: 500; pointer-events: none; opacity: 0; }
+        .flash-anim { animation: flashbang 0.5s ease-out; }
+        @keyframes flashbang { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+        /* =========================================================
+           3. MAIN MENU
+           ========================================================= */
+        #front-gate {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #f4f4f2; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 1s ease; padding: 20px; text-align: center;
+        }
+        #front-gate h1 { font-size: clamp(3.5rem, 10vw, 6rem); margin-bottom: 10px; color: #2a2a2a; text-shadow: 2px 2px 0px rgba(0,0,0,0.1); line-height: 1; }
+        #front-gate p { font-family: 'Courier Prime', monospace; font-size: clamp(1rem, 3vw, 1.3rem); margin-bottom: 40px; line-height: 1.6; max-width: 600px;}
+
+        .btn-start {
+            font-family: 'Courier Prime', monospace; font-size: clamp(1.2rem, 4vw, 2rem); font-weight: bold; padding: 15px 40px; background: transparent; color: #2a2a2a;
+            border: 4px solid #2a2a2a; border-radius: 2px 255px 3px 25px / 255px 5px 225px 3px; transition: all 0.2s; cursor: pointer;
+        }
+        @media (hover: hover) { .btn-start:hover { background: #2a2a2a; color: #f4f4f2; transform: scale(1.1) rotate(-2deg); } }
+        .btn-start:active { transform: scale(0.95); }
+
+        /* =========================================================
+           4. DYNAMIC 3D SCENE
+           ========================================================= */
+        #scene {
+            width: 100vw; height: 100vh; perspective: 900px; 
+            display: flex; justify-content: center; align-items: center; z-index: 5;
+            touch-action: none; /* Ensures swiping moves the camera, not the browser page */
+        }
+        
+        #room {
+            width: 0; height: 0; position: absolute; transform-style: preserve-3d;
+            transform: rotateX(0deg) rotateY(0deg) translateZ(var(--cam-z)); 
+            transition: transform 0.1s ease-out; /* Smooth follow */
+        }
+
+        .wall {
+            position: absolute; background-color: #fdfdfd; box-shadow: inset 0 0 150px rgba(0,0,0,0.06); transform-style: preserve-3d;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; border: 4px solid #2a2a2a;
+            border-radius: 5px 155px 5px 15px / 155px 5px 125px 5px;
+            width: var(--room-size); height: var(--room-size);
+        }
+        
+        /* Math computes perfectly based on variables */
+        .wall-back  { transform: translate(-50%, -50%) translateZ(calc(var(--room-size) / -2)); }
+        .wall-left  { transform: translate(-50%, -50%) rotateY(90deg) translateZ(calc(var(--room-size) / -2)); }
+        .wall-right { transform: translate(-50%, -50%) rotateY(-90deg) translateZ(calc(var(--room-size) / -2)); }
+        
+        .floor {
+            border: none; background: repeating-linear-gradient(90deg, #f0f0f0, #f0f0f0 10%, #e6e6e6 10%, #e6e6e6 12%);
+            transform: translate(-50%, -50%) rotateX(90deg) translateZ(calc(var(--room-size) / -2)); border-radius: 0;
+        }
+
+        .wall-title { font-size: clamp(2.5rem, 8vw, 4rem); letter-spacing: 2px; margin-bottom: 20px; text-shadow: 2px 2px 0px rgba(0,0,0,0.1); text-align: center;}
+
+        /* =========================================================
+           5. DOORS & PROGRESSION
+           ========================================================= */
+        .door-frame {
+            width: var(--door-w); height: var(--door-h); border: 4px solid #2a2a2a; border-bottom: none;
+            border-radius: 4px 4px 0 0; position: relative; transform-style: preserve-3d; background: #222;
+        }
+        .room-door {
+            position: absolute; width: 100%; height: 100%; background: #fff; transform-origin: left; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.3s ease, filter 0.3s; cursor: pointer;
+        }
+        .room-door::after { content: ''; position: absolute; right: 10%; top: 50%; width: 14px; height: 14px; background: #2a2a2a; border-radius: 50%; }
+        .room-door h2 { font-size: clamp(1.2rem, 5vw, 2.2rem); pointer-events: none; text-align: center;}
+        
+        .status-icon { font-family: 'Courier Prime', monospace; font-size: clamp(0.7rem, 2vw, 1rem); margin-top: 10px; padding: 4px 8px; border: 2px dashed #2a2a2a; pointer-events: none; font-weight: bold;}
+        
+        /* Locking System */
+        .door-frame.locked .room-door { background: repeating-linear-gradient(45deg, #ccc, #ccc 10px, #bbb 10px, #bbb 20px); filter: grayscale(1); }
+        .door-frame.locked .status-icon { color: #c0392b; border-color: #c0392b; }
+        .door-frame.unlocked .room-door { background: #fff; }
+        .door-frame.unlocked .status-icon { color: #f39c12; border-color: #f39c12; }
+        .door-frame.solved .status-icon { color: #27ae60; border-color: #27ae60; }
+        
+        @media (hover: hover) { .door-frame.unlocked.interactable:hover .room-door { background-color: #e3f2fd; } }
+        .room-door.open { transform: rotateY(-105deg); }
+
+        /* =========================================================
+           6. PUZZLE & INVENTORY MODALS
+           ========================================================= */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(42, 42, 42, 0.9); z-index: 200;
+            display: none; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.4s ease;
+        }
+        .modal-overlay.active { opacity: 1; }
+
+        .modal-content, .puzzle-content {
+            background: #f4f4f2; max-width: 750px; width: 92%; max-height: 85vh; overflow-y: auto; overflow-x: hidden;
+            padding: 50px 40px; position: relative; font-family: 'Courier Prime', monospace; 
+            transform: translateY(50px) scale(0.9); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+            display: none; border: 4px solid #2a2a2a; border-radius: 2px 255px 3px 25px / 255px 5px 225px 3px;
+        }
+        @media (max-width: 768px) { .modal-content, .puzzle-content { padding: 40px 20px 20px 20px; } }
+
+        .modal-overlay.active .modal-content, .modal-overlay.active .puzzle-content { transform: translateY(0) scale(1); }
+        
+        .modal-content::-webkit-scrollbar { width: 8px; }
+        .modal-content::-webkit-scrollbar-track { background: transparent; border-left: 2px dashed #ccc; }
+        .modal-content::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+
+        .modal-content h2 { font-family: 'Caveat', cursive; font-size: clamp(2.5rem, 8vw, 4rem); border-bottom: 4px solid #2a2a2a; margin-bottom: 20px; padding-top: 10px; line-height: 1.1;}
+        .modal-content h3 { font-size: clamp(1.2rem, 4vw, 1.5rem); margin: 25px 0 10px 0; color: #111; text-decoration: underline; }
+        .modal-content p, .modal-content li { line-height: 1.6; margin-bottom: 15px; font-size: clamp(0.95rem, 3vw, 1.1rem); color: #333; }
+        .modal-content ul { padding-left: 20px; margin-bottom: 15px; }
+
+        /* Puzzle Terminal UI */
+        .puzzle-content { max-width: 500px; text-align: center; background: #111; color: #3498db; border: 4px solid #222; border-radius: 8px;}
+        .puzzle-content h2 { font-family: 'Courier Prime', monospace; font-size: clamp(1.2rem, 5vw, 1.5rem); border-bottom: 1px dashed #3498db; padding-bottom: 10px; color: #3498db; margin-bottom: 20px; border-top: none;}
+        .puzzle-content p { color: #eee; font-size: clamp(1rem, 4vw, 1.2rem); margin-bottom: 30px; line-height: 1.6;}
+        .puzzle-content code { background: #222; padding: 4px 8px; border-radius: 4px; color: #f1c40f; border: 1px solid #444; word-wrap: break-word;}
+
+        .puzzle-input { 
+            background: transparent; border: 2px solid #3498db; color: #3498db; font-family: 'Courier Prime', monospace; 
+            font-size: 16px; /* 16px STRICT to stop iOS Safari zoom */
+            padding: 12px; width: 100%; max-width: 300px; text-align: center; outline: none; text-transform: lowercase; margin-bottom: 20px; border-radius: 4px;
+        }
+        .puzzle-input:focus { background: rgba(52, 152, 219, 0.1); }
+        .puzzle-input.error { border-color: #e74c3c; color: #e74c3c; }
+        
+        .btn-submit {
+            background: #3498db; color: #111; border: none; font-family: 'Courier Prime', monospace; font-size: 1.1rem; font-weight: bold;
+            padding: 12px 30px; margin-top: 10px; transition: 0.2s; border-radius: 4px; cursor: pointer;
+        }
+        .btn-submit:active { background: #2980b9; transform: scale(0.95); }
+
+        .close-btn, .cancel-btn {
+            position: absolute; top: 15px; right: 15px; font-family: 'Courier Prime', monospace; font-weight: bold; font-size: 1rem;
+            background: #fff; border: 2px solid #2a2a2a; color: #111; padding: 6px 12px; transition: all 0.2s ease; z-index: 10; cursor: pointer;
+        }
+        .close-btn:active, .cancel-btn:active { background: #2a2a2a; color: #fff; }
+
+        /* =========================================================
+           7. CELEBRATION POPUP
+           ========================================================= */
+        #party-popup {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.5);
+            background: #fff; border: 6px solid #2a2a2a; border-radius: 10px; padding: 40px 20px;
+            text-align: center; z-index: 500; opacity: 0; pointer-events: none; transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 20px 20px 0px rgba(0,0,0,0.1); width: 90%; max-width: 500px;
+        }
+        #party-popup.show { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+        #party-popup h2 { font-family: 'Caveat', cursive; font-size: clamp(3rem, 10vw, 4.5rem); color: #e74c3c; margin-bottom: 15px; line-height: 1;}
+        #party-popup p { font-family: 'Courier Prime', monospace; font-size: clamp(1rem, 4vw, 1.2rem); font-weight: bold; }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-cursor"></div>
+    <div id="flash"></div>
+    <canvas id="ink-particles"></canvas>
+    <canvas id="confetti-canvas"></canvas>
+
+    <div id="game-hud">
+        <div class="hud-box">ARCHIVES: <span id="score">0</span>/3</div>
+        <div class="hud-box blink" id="mission-text">MISSION: UNLOCK DOOR 1</div>
+    </div>
+
+    <div id="front-gate">
+        <h1>Divya Goyal</h1>
+        <p>Full Stack Web Developer Portfolio<br>Solve the logic puzzles to unlock the archives.</p>
+        <button class="btn-start interactable" id="btn-enter">START GAME</button>
+    </div>
+
+    <div id="scene">
+        <div id="room">
+            <div class="wall floor"></div>
+
+            <div class="wall wall-left">
+                <h2 class="wall-title">Archive 01</h2>
+                <div class="door-frame unlocked interactable" data-id="1" data-target="content-about">
+                    <div class="room-door">
+                        <h2>About Me</h2>
+                        <div class="status-icon">[ UNLOCKED ]</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wall wall-back">
+                <h2 class="wall-title">Archive 02</h2>
+                <div class="door-frame locked interactable" data-id="2" data-target="content-projects">
+                    <div class="room-door">
+                        <h2>Projects</h2>
+                        <div class="status-icon">[ LOCKED ]</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wall wall-right">
+                <h2 class="wall-title">Archive 03</h2>
+                <div class="door-frame locked interactable" data-id="3" data-target="content-contact">
+                    <div class="room-door">
+                        <h2>Contact</h2>
+                        <div class="status-icon">[ LOCKED ]</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="overlay">
+        
+        <div class="puzzle-content" id="puzzle-modal">
+            <button class="cancel-btn interactable">&times; ABORT</button>
+            <h2>SECURITY OVERRIDE</h2>
+            <p id="puzzle-question">Question goes here...</p>
+            <input type="text" class="puzzle-input interactable" id="puzzle-input" placeholder="enter answer..." autocomplete="off">
+            <br>
+            <button class="btn-submit interactable" id="btn-submit-puzzle">DECRYPT</button>
+        </div>
+
+        <div class="modal-content" id="content-about">
+            <button class="close-btn interactable">&times; CLOSE</button>
+            <h2>The Developer</h2>
+            <p>Welcome. I am <strong>Divya Goyal</strong>, a passionate Full Stack Developer who builds robust, scalable web applications from the database all the way to the DOM.</p>
+            <h3>Core Technical Arsenal</h3>
+            <ul>
+                <li><strong>Frontend:</strong> HTML5, CSS3, JavaScript (ES6+), React.js, Tailwind CSS.</li>
+                <li><strong>Backend:</strong> Node.js, Express.js, RESTful APIs.</li>
+                <li><strong>Database & Tools:</strong> MongoDB, PostgreSQL, Git/GitHub.</li>
+            </ul>
+        </div>
+
+        <div class="modal-content" id="content-projects">
+            <button class="close-btn interactable">&times; CLOSE</button>
+            <h2>Project Gallery</h2>
+            <h3>Level 1: E-Commerce Platform</h3>
+            <p>Engineered a full-featured online shopping platform using the MERN stack (MongoDB, Express, React, Node.js). Implemented secure user authentication, shopping cart functionality, and integrated third-party payment gateways.</p>
+            
+            <h3>Level 2: Real-time Chat Application</h3>
+            <p>Built a responsive chat interface connecting multiple users instantly. Leveraged Socket.io for low-latency, real-time bidirectional event-based communication alongside a reliable Node.js backend.</p>
+        </div>
+
+        <div class="modal-content" id="content-contact">
+            <button class="close-btn interactable">&times; CLOSE</button>
+            <h2>Communications Hub</h2>
+            <p>I am actively open to collaborations, full-time engineering roles, and exciting freelance opportunities within innovative tech teams.</p>
+            <br>
+            <p><strong>[ Email ]:</strong> hello@divyagoyal.dev</p>
+            <p><strong>[ GitHub ]:</strong> github.com/divyagoyal</p>
+            <p><strong>[ LinkedIn ]:</strong> linkedin.com/in/divyagoyal</p>
+        </div>
+
+    </div>
+
+    <div id="party-popup">
+        <h2>MISSION COMPLETE!</h2>
+        <p>You have unlocked the full portfolio.</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- CURSOR & RIPPLES (Desktop Only) ---
+            const cursor = document.getElementById('game-cursor');
+            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            
+            if(!isTouchDevice) {
+                document.addEventListener('mousemove', (e) => {
+                    cursor.style.left = `${e.clientX - 10}px`; cursor.style.top = `${e.clientY - 10}px`;
+                });
+                document.querySelectorAll('.interactable').forEach(el => {
+                    el.addEventListener('mouseenter', () => cursor.classList.add('hovering'));
+                    el.addEventListener('mouseleave', () => cursor.classList.remove('hovering'));
+                });
+                document.addEventListener('mousedown', (e) => {
+                    const ripple = document.createElement('div'); ripple.classList.add('click-ripple');
+                    ripple.style.left = `${e.clientX}px`; ripple.style.top = `${e.clientY}px`;
+                    document.body.appendChild(ripple); setTimeout(() => ripple.remove(), 600);
+                });
+            }
+
+            // --- INK PARTICLES ---
+            const canvas = document.getElementById('ink-particles');
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+            function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+            window.addEventListener('resize', resizeCanvas); resizeCanvas();
+            for (let i = 0; i < 25; i++) {
+                particles.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, radius: Math.random()*2+0.5, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5 });
+            }
+            function animateParticles() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = '#2a2a2a';
+                particles.forEach(p => {
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < 0) p.x = canvas.width; if (p.x > canvas.width) p.x = 0;
+                    if (p.y < 0) p.y = canvas.height; if (p.y > canvas.height) p.y = 0;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fill();
+                });
+                requestAnimationFrame(animateParticles);
+            }
+            animateParticles();
+
+            // --- CONFETTI ENGINE ---
+            const cCanvas = document.getElementById('confetti-canvas');
+            const cCtx = cCanvas.getContext('2d');
+            let confettis = [];
+            const colors = ['#e74c3c', '#3498db', '#f1c40f', '#2ecc71', '#9b59b6'];
+            
+            function fireConfetti() {
+                cCanvas.width = window.innerWidth; cCanvas.height = window.innerHeight;
+                for(let i=0; i<150; i++) {
+                    confettis.push({
+                        x: cCanvas.width/2, y: cCanvas.height/2 + 50,
+                        vx: (Math.random()-0.5)*15, vy: (Math.random()-1)*20 - 5,
+                        size: Math.random()*10+5, color: colors[Math.floor(Math.random()*colors.length)],
+                        rot: Math.random()*360, rotSpeed: (Math.random()-0.5)*10
+                    });
+                }
+                animateConfetti();
+            }
+            function animateConfetti() {
+                if(confettis.length === 0) return;
+                cCtx.clearRect(0, 0, cCanvas.width, cCanvas.height);
+                confettis.forEach((c, index) => {
+                    c.vy += 0.5; // gravity
+                    c.x += c.vx; c.y += c.vy; c.rot += c.rotSpeed;
+                    cCtx.save(); cCtx.translate(c.x, c.y); cCtx.rotate(c.rot * Math.PI / 180);
+                    cCtx.fillStyle = c.color; cCtx.fillRect(-c.size/2, -c.size/2, c.size, c.size);
+                    cCtx.restore();
+                    if(c.y > cCanvas.height) confettis.splice(index, 1);
+                });
+                requestAnimationFrame(animateConfetti);
+            }
+
+            // --- GAMEPLAY LOGIC & PUZZLES ---
+            const gameData = {
+                1: { answer: "github", question: "Guess the tech platform based on these emojis: <br><br> 🐙 🐱 💻" },
+                2: { answer: "html", question: "I provide the structural skeleton for every web page. I am made entirely of tags, but I am not a game. What am I?" },
+                3: { answer: "7", question: "Evaluate the JavaScript closure:<br><br><code>const add = x => y => x + y;</code><br><br>What is the output of <code>add(5)(2)</code> ?" }
+            };
+
+            let gameActive = false;
+            let activeDoorId = null;
+
+            const room = document.getElementById('room');
+            const overlay = document.getElementById('overlay');
+            const puzzleModal = document.getElementById('puzzle-modal');
+            const puzzleQ = document.getElementById('puzzle-question');
+            const puzzleInput = document.getElementById('puzzle-input');
+            const scoreEl = document.getElementById('score');
+            const missionText = document.getElementById('mission-text');
+
+            // Start Game
+            document.getElementById('btn-enter').addEventListener('click', () => {
+                document.getElementById('flash').classList.add('flash-anim');
+                setTimeout(() => {
+                    document.getElementById('front-gate').style.display = 'none';
+                    gameActive = true;
+                    document.getElementById('game-hud').style.opacity = '1';
+                }, 250);
+            });
+
+            // --- RESPONSIVE CAMERA CONTROLS ---
+            let camRotX = 0, camRotY = 0;
+            
+            // Desktop: Follow Mouse
+            document.addEventListener('mousemove', (e) => {
+                if (!gameActive || isTouchDevice) return;
+                const pctX = (e.clientX / window.innerWidth) - 0.5;
+                const pctY = (e.clientY / window.innerHeight) - 0.5;
+                camRotX = -pctY * 15;
+                camRotY = pctX * 30;
+                room.style.transform = `translateZ(var(--cam-z)) rotateX(${camRotX}deg) rotateY(${camRotY}deg)`;
+            });
+
+            // Mobile: Swipe / Drag to look
+            let isDragging = false;
+            let lastTouchX = 0, lastTouchY = 0;
+
+            document.getElementById('scene').addEventListener('touchstart', (e) => {
+                if(!gameActive) return;
+                isDragging = true;
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }, {passive: true});
+
+            document.getElementById('scene').addEventListener('touchmove', (e) => {
+                if (!gameActive || !isDragging) return;
+                
+                let deltaX = e.touches[0].clientX - lastTouchX;
+                let deltaY = e.touches[0].clientY - lastTouchY;
+
+                camRotY += deltaX * 0.4; // Swipe Sensitivity
+                camRotX -= deltaY * 0.4;
+
+                // Clamp angles so user doesn't spin out of the box
+                camRotX = Math.max(-20, Math.min(20, camRotX));
+                camRotY = Math.max(-50, Math.min(50, camRotY));
+
+                room.style.transform = `translateZ(var(--cam-z)) rotateX(${camRotX}deg) rotateY(${camRotY}deg)`;
+
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }, {passive: true});
+
+            document.getElementById('scene').addEventListener('touchend', () => isDragging = false);
+
+
+            // Door Clicks
+            document.querySelectorAll('.door-frame').forEach(door => {
+                door.addEventListener('click', () => {
+                    const doorId = parseInt(door.getAttribute('data-id'));
+                    
+                    if (door.classList.contains('locked')) {
+                        door.classList.add('shake-anim');
+                        setTimeout(() => door.classList.remove('shake-anim'), 400);
+                        return; 
+                    }
+
+                    if (door.classList.contains('solved')) {
+                        openContentModal(door.getAttribute('data-target'));
+                    } else if (door.classList.contains('unlocked')) {
+                        activeDoorId = doorId;
+                        puzzleQ.innerHTML = gameData[doorId].question;
+                        puzzleInput.value = '';
+                        puzzleInput.classList.remove('error');
+                        
+                        document.querySelectorAll('.modal-content').forEach(m => m.style.display = 'none');
+                        puzzleModal.style.display = 'block';
+                        overlay.style.display = 'flex';
+                        setTimeout(() => overlay.classList.add('active'), 50);
+                    }
+                });
+            });
+
+            // Submit Puzzle
+            document.getElementById('btn-submit-puzzle').addEventListener('click', checkPuzzle);
+            puzzleInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') checkPuzzle(); });
+
+            function checkPuzzle() {
+                const guess = puzzleInput.value.toLowerCase().trim();
+                if (guess === gameData[activeDoorId].answer) {
+                    
+                    const currentDoorFrame = document.querySelector(`.door-frame[data-id="${activeDoorId}"]`);
+                    const targetContent = currentDoorFrame.getAttribute('data-target');
+                    
+                    currentDoorFrame.classList.remove('unlocked');
+                    currentDoorFrame.classList.add('solved');
+                    currentDoorFrame.querySelector('.status-icon').innerText = "[ ACCESSED ]";
+                    currentDoorFrame.querySelector('.room-door').classList.add('open');
+                    
+                    scoreEl.innerText = activeDoorId;
+                    
+                    if (activeDoorId < 3) {
+                        const nextDoor = document.querySelector(`.door-frame[data-id="${activeDoorId + 1}"]`);
+                        nextDoor.classList.remove('locked');
+                        nextDoor.classList.add('unlocked');
+                        nextDoor.querySelector('.status-icon').innerText = "[ UNLOCKED ]";
+                        missionText.innerText = `MISSION: UNLOCK DOOR ${activeDoorId + 1}`;
+                    }
+
+                    puzzleModal.style.display = 'none';
+                    openContentModal(targetContent);
+
+                } else {
+                    puzzleInput.classList.add('error', 'shake-anim');
+                    setTimeout(() => puzzleInput.classList.remove('shake-anim'), 400);
+                }
+            }
+
+            function openContentModal(targetId) {
+                const activeModal = document.getElementById(targetId);
+                activeModal.style.display = 'block';
+                activeModal.scrollTop = 0;
+            }
+
+            // Close Modals & Handle Finale
+            document.querySelectorAll('.close-btn, .cancel-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    overlay.classList.remove('active');
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                        puzzleModal.style.display = 'none';
+                        document.querySelectorAll('.modal-content').forEach(m => m.style.display = 'none');
+                        
+                        // Check if game just finished
+                        const finalDoor = document.querySelector('.door-frame[data-id="3"]');
+                        if (finalDoor.classList.contains('solved') && btn.classList.contains('close-btn')) {
+                            if(missionText.innerText !== "MISSION: COMPLETE") {
+                                missionText.innerText = "MISSION: COMPLETE";
+                                missionText.classList.remove('blink');
+                                missionText.style.color = "#27ae60";
+                                document.getElementById('party-popup').classList.add('show');
+                                fireConfetti();
+                                
+                                setTimeout(() => {
+                                    document.getElementById('party-popup').classList.remove('show');
+                                }, 5000);
+                            }
+                        }
+                    }, 400);
+                });
+            });
+        });
+    </script>
+</body>
+</html>
